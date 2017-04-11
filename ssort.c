@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <mpi.h>
 #include <stdlib.h>
+#include "util.h"
 
 
 static int compare(const void *a, const void *b){
@@ -42,6 +43,9 @@ int main( int argc, char *argv[]){
 	for (i = 0; i < N; ++i) {
 	  vec[i] = rand();	
 	}
+	// BEGIN TIMING
+	timestamp_type time1, time2;
+	get_timestamp(&time1);
 
 	/* randomly sample s entries from vector or select local splitters,
 	 * i.e., every N/P-th entry of the sorted vector */
@@ -143,6 +147,9 @@ int main( int argc, char *argv[]){
 
   	/* do a local sort */
   	qsort(finalBucket,totalNumbersRecv, sizeof(int), compare);
+
+	// END SORTING
+
   	/* every processor writes its result to a file */
 	char file[1024];
 	snprintf(file,1024,"ssortRank%002d.dat",rank);
@@ -151,6 +158,12 @@ int main( int argc, char *argv[]){
 		fprintf(filePtr,"%d\n",finalBucket[i]);
 	}
 	fclose(filePtr);
+	get_timestamp(&time2);
+	double elapsed = timestamp_diff_in_seconds(time1,time2);
+	double rootE=0.0;
+	MPI_Reduce(&elapsed,&rootE ,1,MPI_DOUBLE, MPI_SUM,0,MPI_COMM_WORLD);
+	if (rank==0)
+        	printf("Avg Time elapsed per Processor is %f seconds.\n",rank, rootE/p);
 
 //	int *vec, *samples, *rootSamples,*buckets,*bucketCount,*recvFrom;
 	free(finalBucket);free(vec);free(samples);free(rootSamples);free(bucketCount);free(recvFrom);
