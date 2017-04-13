@@ -28,19 +28,28 @@ int powerOfFour(int a){
 }
 
 /* compuate global residual, assuming ghost values are updated */
-double compute_residual(double **u, int N_l, double h){
-	int i;
+double compute_residual(double **u, int N_l, double h, double *leftGhost, double *rightGhost, double *topGhost, double *bottomGhost){
+	int i,j;
 	double res=0.0,temp2;
-	for(i=1;i<N-1;i++){
-		for(j=1; j<N-1; j++){
+	for(i=1;i<N_l-1;i++){
+		for(j=1; j<N_l-1; j++){
 			temp2 = (4*u[i][j]-u[i-1][j]-u[i+1][j] - u[i][j-1] - u[i][j+1] - 1.0*h*h);
 			res += temp2*temp2;
 		}
 	}
+	for(i=1;i<N_l-1;i++){
+		temp2 = 4.0*u[0][i] - (u[0][i-1]+u[1][i]+bottomGhost[i]+u[0][i+1]+1.0*h*h); // Bot Edge
+		res += temp2*temp2;
+		temp2 = 4.0*u[i][0] - (u[i-1][0]+u[i][1]+leftGhost[i]+u[i+1][0]+1.0*h*h); // Left Edge
+		res += temp2*temp2;
+		temp2 = 4.0*u[N_l-1][i] - (u[N_l-1][i-1]+u[N_l-2][i]+u[N_l-1][i+1]+topGhost[i]+1.0*h*h); // Top Edge
+		res += temp2*temp2;
+		temp2 = 4.0*u[i][N_l-1] - (u[i-1][N_l-1]+u[i][N_l-2]+u[i+1][N_l-1]+rightGhost[i]+1.0*h*h); // Right Edge
+		res += temp2*temp2;
+	}
 	/* use allreduce for convenience; a reduce would also be sufficient */
-	double globalRes;
-	MPI_Allreduce(&res, &gres, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-	return sqrt(gres);
+	//MPI_Allreduce(&res, &globalRes, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+	return res; // NOTE -> NOTE SQRT, do reduction in Main code, then takesqrt
 }
 
 int main( int argc, char *argv[]){
@@ -49,7 +58,9 @@ int main( int argc, char *argv[]){
 	MPI_Init(&argc, &argv);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Comm_size(MPI_COMM_WORLD,&p);
-	MPI_Status status1,status2,status3,status4;
+	MPI_Status status1,status2;
+
+	timestamp_type time1,time2;	
 	if ( argc != 3 ){
 		if (rank==0)printf("Need 2 Command Line Args\n1. Size of Processor Meshes Dims\n2. Maximum # of Iterations\n");
 		return -1;
@@ -88,6 +99,7 @@ int main( int argc, char *argv[]){
 	int iter;
 	int rLeft=0,rTop=1,rRight=2,rBot=3; // When you send, give a tag for what other should receive...
 	// Iterate here
+	get_timestamp(&time1);
 	for (iter=0;iter < max_iter; iter++){
 		// Populate Copies of Local Vectors to Send
 		temp = uold;
@@ -143,22 +155,39 @@ int main( int argc, char *argv[]){
                                 unew[i][j] = (uold[i-1][j]+uold[i+1][j] + uold[i][j-1] + uold[i][j+1] + 1.0*h*h)/4.0;
                         }
                 }
-		double res = compute_residual(unew,N_l,h);
+		double res = compute_residual(unew,N_l,h,leftGhost,rightGhost,topGhost,bottomGhost), gres=0.0;
+		MPI_Reduce(&res,&gres,1,MPI_DOUBLE,MPI_SUM,0,MPI_COMM_WORLD);
+		gres = sqrt(gres);
+/*		if ( iter % 10 == 0 && rank == 0){
+			printf("Res: %f\n",gres);
+		}
 		if ( iter == 0 ){
 			ires = res;
-		}else if ( res/ires < tol ){break;}
-
+		}//else if ( res/ires < tol ){break;}
+*/
 	}// End Iteration Loop
+	get_timestamp(&time2);
+	double elapsed = timestamp_diff_in_seconds(time1,time2), elapsedSum=0.0;
+	MPI_Reduce(&elapsed,&elapsedSum,1,MPI_DOUBLE,MPI_SUM,0,MPI_COMM_WORLD);
+	elapsedSum = elapsedSum / p;
+        if (rank == 0 ){
+		printf("\n\n============================================\n\n");
+		printf("Avg Time for Computation per Processor is %f seconds.\n", elapsedSum);
+		printf("Number of points per Processor = %d\n", (N_l*N_l));
+		printf("\n============================================\n\n");
+	}
 
+/*
+	// Printing Loop for Visualization of Solution
 	int r=0;
 	for (r=0;r<p;r++){
 		for (i=1;i<=N_l;i++){
 			for (j=1;j<=N_l;j++){
-				printf("%f %f %f\n",h*((rank/procsPerRow)*N_l+i),h*((rank%procsPerRow)*N_l+j),unew[i-1][j-1]);
+	//			printf("%f %f %f\n",h*((rank/procsPerRow)*N_l+i),h*((rank%procsPerRow)*N_l+j),unew[i-1][j-1]);
                		 	}
         		}	
 	}
-
+*/
 
 	free(topGhost);
 	free(bottomGhost);
