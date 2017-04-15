@@ -1,0 +1,4 @@
+Running on 64 Nodes -> 200 Randoms per node
+Avg Time elapsed per Processor is 0.094237 seconds.
+Running on 64 Nodes -> 1000 Randoms per node
+Avg Time elapsed per Processor is 0.123125 seconds.
